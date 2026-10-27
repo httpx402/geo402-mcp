@@ -1,0 +1,22 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "com.geo402/mcp",
+  "title": "Geo402 Geo Web Fetch",
+  "description": "Read any public web page as seen from another country, as clean markdown. Pay per page.",
+  "websiteUrl": "https://geo402.com",
+  "version": "1.0.0",
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "geo402-mcp",
+      "version": "1.0.0",
+      "transport": { "type": "stdio" },
+      "environmentVariables": [
+        { "name": "GEO402_PRIVATE_KEY", "description": "Private key of a dedicated wallet holding a few dollars of USDC on Base. Pays each page. Use a small, separate wallet.", "isRequired": true, "isSecret": true, "format": "string" },
+        { "name": "GEO402_BUDGET", "description": "Max USD spent per session (default 2)", "isRequired": false, "format": "string" },
+        { "name": "GEO402_MAX_PER_CALL", "description": "Max USD per single page (default 0.05)", "isRequired": false, "format": "string" }
+      ]
+    }
+  ],
+  "icons": [{ "src": "https://geo402.com/icon.png", "mimeType": "image/png", "sizes": ["512x512"] }]
+}

@@ -1,0 +1,20 @@
+{
+  "name": "geo402-mcp",
+  "version": "1.0.0",
+  "description": "MCP server for Geo402: read any public web page as it appears from another country (residential IPs in 190+ countries), as clean markdown. Paid per page in USDC via x402.",
+  "mcpName": "com.geo402/mcp",
+  "main": "index.js",
+  "bin": { "geo402-mcp": "index.js" },
+  "files": ["index.js", "README.md"],
+  "engines": { "node": ">=20" },
+  "keywords": ["mcp", "web-fetch", "geo", "localization", "residential-proxy", "x402", "ai-agent", "price-comparison", "markdown"],
+  "homepage": "https://geo402.com",
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "@x402/evm": "^2.28.0",
+    "@x402/fetch": "^2.28.0",
+    "viem": "^2.57.11",
+    "zod": "^3.25.76"
+  }
+}
