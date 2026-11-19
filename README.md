@@ -1,15 +1,28 @@
 # geo402-mcp
 
-Let Claude, Cursor or any MCP client **read any public web page as it appears from another country**: localized prices, the local version of a site, country-specific availability, or how your own site looks abroad. Pages come back as clean markdown.
+Let Claude, Cursor or any MCP client **search Google and read any public web page as they appear from another country**: local search results and businesses, localized prices, the local version of a site, or how your own site looks abroad. Pages come back as clean markdown.
 
-Powered by [Geo402](https://geo402.com): residential IPs in 190+ countries, paid per page (about **$0.005**) in USDC on Base via the x402 protocol. No account, no API key, no subscription. You're only charged when a page loads.
+Powered by [Geo402](https://geo402.com): 190+ countries, paid per call (about **$0.004** per search, **$0.005** per page) in USDC on Base via the x402 protocol. No account, no API key, no subscription. You're only charged when the call succeeds.
+
+## Hosted server (no install, no private key)
+
+Connect any MCP client to **`https://geo402.com/mcp`** (Streamable HTTP). Free tools (`check_url`, `list_countries`, `free_sample`, `how_to_pay`) work without a wallet; paid tools are paid per call with x402 MCP payments (for example with [`@x402/mcp`](https://www.npmjs.com/package/@x402/mcp)), charged only on success.
+
+```bash
+claude mcp add geo402 --transport http https://geo402.com/mcp
+```
+
+Prefer to run it locally with your own wallet? Use the npm package below.
 
 ## Tools
 
 | Tool | What it does | Cost |
 |---|---|---|
-| `fetch_page_from_country` | One page from one country, as markdown, text or HTML | ~$0.005 |
-| `compare_page_across_countries` | The same page from 2-5 countries, side by side | ~$0.005 per country |
+| `search_from_country` | Google results as seen from a country and language: web, news, images, or Maps places in any city | ~$0.004 |
+| `compare_search_across_countries` | One search in 2-5 countries: ranks per country, sites ranking in several, and your domain's rank in each | ~$0.004 per country |
+| `search_and_read` | Search from a country, then read the top 1-5 results from that same country as markdown, in one payment | ~$0.004 + $0.005 per page |
+| `fetch_page_from_country` | One page from one country (or city / US state), as markdown, text or HTML, with the product price extracted | ~$0.005 |
+| `compare_page_across_countries` | The same page from 2-5 countries in one payment, with prices in USD and the cheapest country | ~$0.005 per country |
 | `check_url` | Is this URL allowed? (rules + robots.txt) | free |
 | `list_countries` | Available country codes | free |
 | `wallet_status` | Wallet balance and spending | free |
@@ -40,6 +53,8 @@ Example questions:
   }
 }
 ```
+
+**No wallet yet?** Leave `GEO402_PRIVATE_KEY` out and `search_from_country` or `fetch_page_from_country` uses your one free call per day, so you can see it work first.
 
 **3. Restart the assistant** and ask "check my Geo402 wallet" to confirm.
 

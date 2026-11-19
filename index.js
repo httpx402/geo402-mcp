@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Geo402 MCP server: lets AI assistants (Claude, Cursor, ...) read any public web page as it appears from another country.
+// Geo402 MCP server: lets AI assistants (Claude, Cursor, ...) search Google and read any public web page as they appear from another country.
 // Each tool call is paid automatically in USDC on Base from YOUR wallet via the x402 protocol,
 // within the per-call cap and session budget you set.
 const { McpServer } = require("@modelcontextprotocol/sdk/server/mcp.js");
@@ -13,7 +13,7 @@ const { ExactEvmScheme } = require("@x402/evm/exact/client");
 const { AsyncLocalStorage } = require("async_hooks");
 const callContext = new AsyncLocalStorage(); // tracks the exact amount authorized within each tool call
 
-const VERSION = "1.0.0";
+const VERSION = "1.3.0";
 const API = (process.env.GEO402_URL || "https://geo402.com").replace(/\/$/, "");
 const TESTNET = process.env.GEO402_NETWORK === "base-sepolia";
 const NETWORK = TESTNET ? "eip155:84532" : "eip155:8453";
@@ -128,34 +128,86 @@ async function freeGet(path, params = {}) {
   } catch (e) { return fail(`Network error: ${e.message}`); }
 }
 
+const searchCountry = z.string().regex(/^[A-Za-z]{2}$/, "2-letter country code").optional().describe("Google market to search from, e.g. ca, fr, de, jp (default us)");
+const lang = z.string().optional().describe("Result language, e.g. fr, en, de, pt-br (default: the market's)");
+const location = z.string().optional().describe("With type=places: the city, e.g. \"Montreal, Quebec, Canada\"");
+
+server.registerTool("search_from_country", {
+  title: "Google search as seen from a country",
+  description: "Search Google as a user in the chosen country and language sees it. Returns ranked results (title, url, domain, snippet), answer box, knowledge graph, People Also Ask and related searches; or news, Maps places (name, address, rating, phone, website) or images. Use for local research, market or competitor checks, local SEO rankings, finding local businesses, or any question where results differ by country. About $0.004 per search, charged only on success.",
+  inputSchema: {
+    q: z.string().min(1).max(400).describe("Search query"),
+    country: searchCountry, lang, location,
+    type: z.enum(["web", "news", "places", "images"]).optional().describe("web (default), news, places (Maps listings) or images"),
+    num: z.number().int().min(1).max(20).optional().describe("Results, 1-20 (default 10)"),
+  }, annotations: ro,
+}, async ({ q, country, lang, location, type, num }) => {
+  const params = { q, country: country && country.toLowerCase(), lang, location, type, num };
+  if (payFetch) return call("/api/search", params);
+  try {
+    const r = await fetch(API + "/api/search" + qs({ ...params, trial: 1 }), { headers: { Accept: "application/json" } });
+    const j = await r.json().catch(() => ({}));
+    if (r.ok) return text(j);
+    if (r.status === 402) return fail(`${j.free_trial || "The free trial is used up."} ${NO_WALLET}`);
+    return fail(`Geo402 error ${r.status} (not charged): ${j.error || JSON.stringify(j)}`.slice(0, 2000));
+  } catch (e) { return fail(`Network error: ${e.message}`); }
+});
+
+server.registerTool("compare_search_across_countries", {
+  title: "Compare Google results across countries",
+  description: "Run one Google search in 2-5 countries at once: ranked results per country, the sites that rank in several of them, and (optional) where a given domain ranks in each country. For international SEO, market research and competitor checks. About $0.004 per country, one payment; not charged if every country fails.",
+  inputSchema: {
+    q: z.string().min(1).max(400).describe("Search query"),
+    countries: z.array(z.string().regex(/^[A-Za-z]{2}$/)).min(2).max(5).describe("2-5 country codes, e.g. [\"us\",\"ca\",\"fr\"]"),
+    domain: z.string().optional().describe("Optional site to track, e.g. example.com"),
+    lang: z.string().optional().describe("Optional language for every country (default: each market's own)"),
+    num: z.number().int().min(1).max(20).optional().describe("Results per country (default 10)"),
+  }, annotations: ro,
+}, async ({ q, countries, domain, lang, num }) => call("/api/search/compare", {}, { q, countries: countries.map((c) => c.toLowerCase()), domain, lang, num }));
+
+server.registerTool("search_and_read", {
+  title: "Search from a country and read the top results",
+  description: "One call: search Google as seen from the chosen country, then open the top 1-5 results through residential IPs in that same country and return each page as clean markdown (trimmed to max_chars). Results that are blocked, sign-in pages or disallowed by robots.txt are skipped and the next result is read. Best for researching a question with local sources. About $0.004 + $0.005 per page read, one payment; not charged if no page loads.",
+  inputSchema: {
+    q: z.string().min(1).max(400).describe("Search query"),
+    country: searchCountry, lang,
+    read: z.number().int().min(1).max(5).optional().describe("How many top results to read (default 3)"),
+    max_chars: z.number().int().min(500).max(20000).optional().describe("Max characters per page (default 4000)"),
+  }, annotations: ro,
+}, async ({ q, country, lang, read, max_chars }) => call("/api/search/read", {}, { q, country: country && country.toLowerCase(), lang, read, max_chars }));
+
 server.registerTool("fetch_page_from_country", {
   title: "Read a web page as it appears from a country",
-  description: "Fetch one public web page through a residential IP in the chosen country and return it as clean markdown (or text/html), with title, final URL and status. Use for localized prices, the local version of a site, country-specific availability or content, or checking how a site looks abroad. Charged only if the page loads (about $0.005). Public pages only: sign-in, checkout and payment pages are refused, robots.txt is respected, and sites that show a CAPTCHA return an error (not charged).",
-  inputSchema: { url, country, format }, annotations: ro,
-}, async ({ url, country, format }) => call("/api/fetch", { url, country: country && country.toLowerCase(), format }));
+  description: "Fetch one public web page through a residential IP in the chosen country (optionally a city or US state) and return it as clean markdown (or text/html), with title, final URL, status, and the product price/currency/availability extracted when the page has product data. Use for localized prices, the local version of a site, country-specific availability or content, or checking how a site looks abroad. Charged only if the page loads (about $0.005). Public pages only: sign-in, checkout and payment pages are refused, robots.txt is respected, and sites that show a CAPTCHA return an error (not charged).",
+  inputSchema: {
+    url, country, format,
+    city: z.string().optional().describe("Optional city for the exit IP, needs country (e.g. berlin). Small extra charge."),
+    state: z.string().optional().describe("Optional US state, needs country=us (e.g. texas). Small extra charge."),
+  }, annotations: ro,
+}, async ({ url, country, format, city, state }) => {
+  const params = { url, country: country && country.toLowerCase(), format, city, state };
+  if (payFetch) return call("/api/fetch", params);
+  // No wallet yet: use the free trial (one page per day) so new users can see it work
+  if (city || state) return fail(NO_WALLET);
+  try {
+    const r = await fetch(API + "/api/fetch" + qs({ ...params, trial: 1 }), { headers: { Accept: "application/json" } });
+    const j = await r.json().catch(() => ({}));
+    if (r.ok) return text(j);
+    if (r.status === 402) return fail(`${j.free_trial || "The free trial is used up."} ${NO_WALLET}`);
+    return fail(`Geo402 error ${r.status} (not charged): ${j.error || JSON.stringify(j)}`.slice(0, 2000));
+  } catch (e) { return fail(`Network error: ${e.message}`); }
+});
 
 server.registerTool("compare_page_across_countries", {
   title: "Compare one page across countries",
-  description: "Fetch the same public page from 2-5 countries in parallel and return each version side by side (status, title, content), so you can compare prices, availability, language or content by country. Costs one page fetch per country (about $0.005 each), charged only for pages that load.",
+  description: "Fetch the same public page from 2-5 countries in one paid call and get each version side by side: status, redirect, language, the extracted product price converted to USD, and an excerpt (or full content), plus the cheapest country. About $0.005 per country, one payment; not charged if no country loads.",
   inputSchema: {
     url,
     countries: z.array(z.string().regex(/^[A-Za-z]{2}$/)).min(2).max(5).describe("2-5 country codes, e.g. [\"us\",\"de\",\"jp\"]"),
+    include_content: z.boolean().optional().describe("true = full page content per country (default: short excerpts)"),
     format,
   }, annotations: ro,
-}, async ({ url, countries, format }) => {
-  const list = [...new Set(countries.map((c) => c.toLowerCase()))];
-  const results = await Promise.all(list.map(async (c) => {
-    const r = await call("/api/fetch", { url, country: c, format: format || "text" });
-    const body = r.content[0].text;
-    if (r.isError) return { country: c, error: body };
-    try { const j = JSON.parse(body); return { country: c, status: j.status, final_url: j.final_url, title: j.title, truncated: j.truncated, content: j.content, paid_usd: j._session && j._session.paid_usd }; }
-    catch { return { country: c, content: body }; }
-  }));
-  // Share the response budget fairly between countries
-  const per = Math.floor(MAX_TEXT / list.length) - 500;
-  for (const r of results) if (r.content && r.content.length > per) r.content = r.content.slice(0, per) + " ... [truncated]";
-  return text({ url, compared: results.length, results, session: { spent_this_session_usd: session.spent, budget_usd: BUDGET } });
-});
+}, async ({ url, countries, include_content, format }) => call("/api/compare", {}, { url, countries: countries.map((c) => c.toLowerCase()), include_content: !!include_content, format: format || "text" }));
 
 server.registerTool("check_url", {
   title: "Check if a URL can be fetched (free)",
